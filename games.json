@@ -1,0 +1,14 @@
+[
+    {
+        "name": "Beat Saber",
+        "process": "beat_saber.exe"
+    },
+    {
+        "name": "Superhot VR",
+        "process": "superhot.exe"
+    },
+    {
+        "name": "Test (Notepad)",
+        "process": "notepad.exe"
+    }
+]
