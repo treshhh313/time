@@ -5,6 +5,7 @@ import threading
 import time
 import os
 import sys
+import json
 from typing import Optional
 
 def resource_path(relative_path):
@@ -35,6 +36,40 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("dark-blue")
 
 # --- Managers ---
+
+class ConfigManager:
+    """Handles loading and saving configuration."""
+    def __init__(self, filename="config.json"):
+        self.filename = resource_path(filename)
+        self.defaults = {
+            "buffer_seconds": 20,
+            "kill_delay_seconds": 30,
+            "process_name": "vrmonitor.exe"
+        }
+        self.config = self.load_config()
+
+    def load_config(self):
+        try:
+            if os.path.exists(self.filename):
+                with open(self.filename, 'r') as f:
+                    return json.load(f)
+            return self.defaults.copy()
+        except Exception as e:
+            print(f"Config Load Error: {e}")
+            return self.defaults.copy()
+
+    def save_config(self):
+        try:
+            with open(self.filename, 'w') as f:
+                json.dump(self.config, f, indent=4)
+        except Exception as e:
+            print(f"Config Save Error: {e}")
+
+    def get(self, key):
+        return self.config.get(key, self.defaults.get(key))
+
+    def set(self, key, value):
+        self.config[key] = value
 
 class SoundManager:
     """Handles MP3 playback using Pygame with Voice Packs."""
@@ -153,11 +188,17 @@ class VRTimerApp(ctk.CTk):
         self.geometry(WINDOW_SIZE)
         
         # Managers
+        self.config_manager = ConfigManager()
         self.sound_manager = SoundManager()
         self.timer_thread: Optional[TimerThread] = None
 
         # Variables
         self.custom_time_var = ctk.StringVar(value="60")
+        
+        # Settings Vars
+        self.var_buffer = ctk.StringVar(value=str(self.config_manager.get("buffer_seconds")))
+        self.var_kill_delay = ctk.StringVar(value=str(self.config_manager.get("kill_delay_seconds")))
+        self.var_process_name = ctk.StringVar(value=self.config_manager.get("process_name"))
         
         # Hidden Trigger vars
         self.click_count = 0
@@ -170,34 +211,38 @@ class VRTimerApp(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # Main container
-        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
-        self.main_frame.grid_columnconfigure(0, weight=1)
+        # Tab View
+        self.tab_view = ctk.CTkTabview(self)
+        self.tab_view.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.tab_view.add("Таймер")
+        self.tab_view.add("Настройки")
 
-        # --- HIDDEN TRIGGER ---
-        # Transparent button in top-left
-        self.btn_hidden = ctk.CTkButton(self.main_frame, text="", fg_color="transparent", hover_color=THEME_COLOR, width=50, height=50, command=self.on_hidden_click)
-        self.btn_hidden.place(x=0, y=0) # Absolute positioning for top-left
-        # Make hover transparent-ish or just same as bg if possible, but 'transparent' fg works. 
-        # hover_color triggers on mouse over, helping find it, or set to "transparent" to be totally invisible.
-        self.btn_hidden.configure(hover_color=THEME_COLOR) # Let it glow slightly to confirm existence to admin
+        # --- TAB: TIMER ---
+        self.timer_frame = self.tab_view.tab("Таймер")
+        self.timer_frame.grid_columnconfigure(0, weight=1)
+
+        # --- HIDDEN TRIGGER (Moved to Tab Timer logic effectively, or kept global but placed in tab) ---
+        # Actually better to place it on the main window or the tab frame. 
+        # Let's place it on the timer frame to avoid overlay issues with tabs.
+        self.btn_hidden = ctk.CTkButton(self.timer_frame, text="", fg_color="transparent", hover_color=THEME_COLOR, width=50, height=50, command=self.on_hidden_click)
+        self.btn_hidden.place(x=0, y=0) 
+        self.btn_hidden.configure(hover_color=THEME_COLOR)
 
         # 1. Header/Status
-        self.lbl_status = ctk.CTkLabel(self.main_frame, text="Ожидание", text_color="gray", font=(FONT_MAIN, 24, "italic"))
+        self.lbl_status = ctk.CTkLabel(self.timer_frame, text="Ожидание", text_color="gray", font=(FONT_MAIN, 24, "italic"))
         self.lbl_status.grid(row=0, column=0, pady=(20, 10))
 
         # 2. Timer Display (Big)
-        self.lbl_time = ctk.CTkLabel(self.main_frame, text="00:00:00", font=(FONT_MAIN, 80, "bold"))
+        self.lbl_time = ctk.CTkLabel(self.timer_frame, text="00:00:00", font=(FONT_MAIN, 80, "bold"))
         self.lbl_time.grid(row=1, column=0, pady=20)
         
-        self.progress_bar = ctk.CTkProgressBar(self.main_frame, orientation="horizontal", mode="determinate")
+        self.progress_bar = ctk.CTkProgressBar(self.timer_frame, orientation="horizontal", mode="determinate")
         self.progress_bar.grid(row=2, column=0, sticky="ew", padx=40, pady=20)
         self.progress_bar.set(0)
         self.progress_bar.configure(progress_color=THEME_COLOR)
 
-        # 3. Quick Time Buttons (With +2 min buffer)
-        self.frm_quick_buttons = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        # 3. Quick Time Buttons
+        self.frm_quick_buttons = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
         self.frm_quick_buttons.grid(row=3, column=0, pady=10)
         
         btn_params = {
@@ -212,7 +257,9 @@ class VRTimerApp(ctk.CTk):
         }
         
         def create_btn(txt, mins):
-            cmd = lambda: self.start_timer(mins + 2) 
+            # Dynamic buffer from config
+            cmd = lambda: self.start_timer(mins) # Buffer added inside start_timer now? Or passed here.
+            # Let's move buffer logic to start_timer to keep it dynamic
             ctk.CTkButton(self.frm_quick_buttons, text=txt, command=cmd, **btn_params).pack(side="left", padx=10)
 
         create_btn("15 мин", 15)
@@ -220,14 +267,14 @@ class VRTimerApp(ctk.CTk):
         create_btn("60 мин", 60)
 
         # 4. Custom Time Input
-        self.frm_custom_time = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.frm_custom_time = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
         self.frm_custom_time.grid(row=4, column=0, pady=10)
         
         ctk.CTkEntry(self.frm_custom_time, textvariable=self.custom_time_var, width=80, justify="center", font=(FONT_MAIN, 14)).pack(side="left", padx=10)
         ctk.CTkButton(self.frm_custom_time, text="Старт (без буфера)", command=lambda: self.start_custom_timer(), fg_color=THEME_COLOR, hover_color=HOVER_COLOR).pack(side="left", padx=10)
 
         # 5. Controls
-        self.frm_controls = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.frm_controls = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
         self.frm_controls.grid(row=5, column=0, pady=20)
         
         control_params = {"width": 120, "height": 40}
@@ -242,14 +289,50 @@ class VRTimerApp(ctk.CTk):
         self.btn_add.pack(side="left", padx=10)
 
         # 6. Volume Control
-        self.frm_volume = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.frm_volume = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
         self.frm_volume.grid(row=6, column=0, pady=(10, 20))
 
         ctk.CTkLabel(self.frm_volume, text="Громкость озвучки:", font=(FONT_MAIN, 12)).pack(side="top", pady=2)
         
         self.slider_volume = ctk.CTkSlider(self.frm_volume, from_=0, to=1, command=self.on_volume_change, width=200, progress_color=THEME_COLOR)
         self.slider_volume.pack(side="top", pady=5)
-        self.slider_volume.set(1.0) # Default 100%
+        self.slider_volume.set(1.0) 
+
+        # --- TAB: SETTINGS ---
+        self.settings_frame = self.tab_view.tab("Настройки")
+        self.settings_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(self.settings_frame, text="Настройки времени", font=(FONT_MAIN, 20, "bold")).pack(pady=20)
+
+        # Buffer
+        ctk.CTkLabel(self.settings_frame, text="Буфер при старте (сек):").pack(pady=5)
+        ctk.CTkEntry(self.settings_frame, textvariable=self.var_buffer).pack(pady=5)
+
+        # Kill Delay
+        ctk.CTkLabel(self.settings_frame, text="Задержка закрытия SteamVR (сек):").pack(pady=5)
+        ctk.CTkEntry(self.settings_frame, textvariable=self.var_kill_delay).pack(pady=5)
+
+        # Process Name
+        ctk.CTkLabel(self.settings_frame, text="Имя процесса VR:").pack(pady=5)
+        ctk.CTkEntry(self.settings_frame, textvariable=self.var_process_name).pack(pady=5)
+
+        # Save Button
+        ctk.CTkButton(self.settings_frame, text="Сохранить настройки", command=self.save_settings, fg_color=THEME_COLOR, hover_color=HOVER_COLOR).pack(pady=20)
+
+    def save_settings(self):
+        try:
+            buffer = int(self.var_buffer.get())
+            kill = int(self.var_kill_delay.get())
+            proc = self.var_process_name.get()
+            
+            self.config_manager.set("buffer_seconds", buffer)
+            self.config_manager.set("kill_delay_seconds", kill)
+            self.config_manager.set("process_name", proc)
+            self.config_manager.save_config()
+            
+            self.show_toast("Настройки сохранены!")
+        except ValueError:
+            self.show_toast("Ошибка: введите числа!")
 
     # --- Timer Control Methods ---
 
@@ -257,24 +340,30 @@ class VRTimerApp(ctk.CTk):
         try:
             mins = int(self.custom_time_var.get())
             if mins > 0:
-                self.start_timer(mins) 
+                self.start_timer(mins, use_buffer=False) 
         except ValueError:
             pass
 
-    def start_timer(self, minutes: float):
+    def start_timer(self, minutes: float, use_buffer=True):
         if self.timer_thread and self.timer_thread.is_alive():
             self.stop_timer()
 
-        # Display clean integer minutes if strictly integer, else hide decimals in status if messy?
-        # Actually user wants to know it started. 
-        # "15.333 min" looks bad. Let's just say "Сессия запущена".
-        # Or format nicely: int(minutes) if buffering only seconds.
+        duration = minutes
+        buffer_sec = 0
+        if use_buffer:
+             buffer_sec = self.config_manager.get("buffer_seconds")
+             duration += (buffer_sec / 60)
+
         display_min = int(minutes)
-        self.lbl_status.configure(text=f"Сессия запущена ({display_min} мин + 20 сек)", text_color="#55FF55")
+        status_txt = f"Сессия запущена ({display_min} мин)"
+        if use_buffer:
+            status_txt += f" + {buffer_sec} сек"
+            
+        self.lbl_status.configure(text=status_txt, text_color="#55FF55")
         self.set_controls_state("normal")
         
         self.timer_thread = TimerThread(
-            duration_minutes=minutes,
+            duration_minutes=duration,
             on_tick=self.on_tick,
             on_finish=self.on_finish,
             on_warning=self.on_warning
@@ -345,13 +434,14 @@ class VRTimerApp(ctk.CTk):
         
         self.sound_manager.play("finish")
         
-        # Schedule SteamVR kill in 60 seconds
-        print("Scheduling SteamVR kill in 60 seconds...")
-        threading.Timer(60.0, self._kill_steam_vr).start()
+        # Schedule SteamVR kill 
+        delay = self.config_manager.get("kill_delay_seconds")
+        print(f"Scheduling SteamVR kill in {delay} seconds...")
+        threading.Timer(float(delay), self._kill_steam_vr).start()
 
     def _kill_steam_vr(self):
-        """Attempts to kill vrmonitor.exe (SteamVR) if running."""
-        target_process = "vrmonitor.exe"
+        """Attempts to kill process (SteamVR) if running."""
+        target_process = self.config_manager.get("process_name")
         killed = False
         try:
             for proc in psutil.process_iter(['pid', 'name']):
