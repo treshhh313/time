@@ -261,11 +261,16 @@ class VRTimerApp(ctk.CTk):
         except ValueError:
             pass
 
-    def start_timer(self, minutes: int):
+    def start_timer(self, minutes: float):
         if self.timer_thread and self.timer_thread.is_alive():
             self.stop_timer()
 
-        self.lbl_status.configure(text=f"Сессия запущена ({minutes} мин)", text_color="#55FF55")
+        # Display clean integer minutes if strictly integer, else hide decimals in status if messy?
+        # Actually user wants to know it started. 
+        # "15.333 min" looks bad. Let's just say "Сессия запущена".
+        # Or format nicely: int(minutes) if buffering only seconds.
+        display_min = int(minutes)
+        self.lbl_status.configure(text=f"Сессия запущена ({display_min} мин + 20 сек)", text_color="#55FF55")
         self.set_controls_state("normal")
         
         self.timer_thread = TimerThread(
