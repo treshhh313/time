@@ -1,15 +1,24 @@
 import customtkinter as ctk
-import pyttsx3
+import pygame
+import psutil
 import threading
 import time
+import os
 from typing import Optional
 
 # --- Configuration & Constants ---
 THEME_COLOR = "#8A2BE2"  # BlueViolet
 HOVER_COLOR = "#9400D3"  # DarkViolet
 FONT_MAIN = "Roboto"
-WINDOW_SIZE = "700x500"
+WINDOW_SIZE = "700x550" # Increased height for volume slider
 APP_TITLE = "VR Club Timer"
+
+# Audio Config
+AUDIO_FILES = {
+    "15m": "warning_15m.mp3",
+    "5m": "warning_5m.mp3",
+    "finish": "finish.mp3"
+}
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("dark-blue")
@@ -17,27 +26,50 @@ ctk.set_default_color_theme("dark-blue")
 # --- Managers ---
 
 class SoundManager:
-    """Handles Text-to-Speech notifications."""
+    """Handles MP3 playback using Pygame with Voice Packs."""
     def __init__(self):
         try:
-            self.engine = pyttsx3.init()
-            self.engine.setProperty('rate', 150)
+            pygame.mixer.init()
+            self.volume = 1.0
+            self.current_pack = "v1" # v1 or v2
         except Exception as e:
-            print(f"TTS Init Error: {e}")
-            self.engine = None
+            print(f"Audio Init Error: {e}")
 
-    def speak(self, text: str):
-        if self.engine:
-            def _speak():
-                try:
-                    self.engine.say(text)
-                    self.engine.runAndWait()
-                except Exception as e:
-                    print(f"TTS Speak Error: {e}")
+    def toggle_pack(self) -> str:
+        self.current_pack = "v2" if self.current_pack == "v1" else "v1"
+        return self.current_pack
+
+    def set_volume(self, value: float):
+        """Set volume (0.0 to 1.0)"""
+        self.volume = max(0.0, min(1.0, value))
+        # Logic to update running sounds if needed, but for notifications 
+        # usually setting mixer volume affects future plays or we set channel volume.
+        # pygame.mixer.Sound.set_volume works per sound.
+        # We'll set it when playing or use a global channel approach if needed.
+        # Simple approach: Store volume and apply on play.
+
+    def play(self, key: str):
+        # Construct filename: e.g. "v1_warning_15m.mp3"
+        base_name = AUDIO_FILES.get(key)
+        if not base_name:
+            return
             
-            threading.Thread(target=_speak, daemon=True).start()
-        else:
-            print(f"[TTS DISABLED] {text}")
+        filename = f"{self.current_pack}_{base_name}"
+        
+        if not os.path.exists(filename):
+            print(f"[AUDIO MISSING] File not found: {filename}")
+            return
+
+        def _play():
+            try:
+                sound = pygame.mixer.Sound(filename)
+                sound.set_volume(self.volume)
+                sound.play()
+            except Exception as e:
+                print(f"Audio Play Error ({filename}): {e}")
+        
+        # Run in thread to not block UI (though pygame mixer is async usually, loading might block)
+        threading.Thread(target=_play, daemon=True).start()
 
 
 class TimerThread(threading.Thread):
@@ -53,7 +85,6 @@ class TimerThread(threading.Thread):
         self.running = False
         self.paused = False
         self._stop_event = threading.Event()
-        self.warning_triggered = False
 
     def run(self):
         self.running = True
@@ -110,6 +141,10 @@ class VRTimerApp(ctk.CTk):
         # Variables
         self.custom_time_var = ctk.StringVar(value="60")
         
+        # Hidden Trigger vars
+        self.click_count = 0
+        self.last_click_time = 0
+        
         self._init_ui()
 
     def _init_ui(self):
@@ -121,6 +156,14 @@ class VRTimerApp(ctk.CTk):
         self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
         self.main_frame.grid_columnconfigure(0, weight=1)
+
+        # --- HIDDEN TRIGGER ---
+        # Transparent button in top-left
+        self.btn_hidden = ctk.CTkButton(self.main_frame, text="", fg_color="transparent", hover_color=THEME_COLOR, width=50, height=50, command=self.on_hidden_click)
+        self.btn_hidden.place(x=0, y=0) # Absolute positioning for top-left
+        # Make hover transparent-ish or just same as bg if possible, but 'transparent' fg works. 
+        # hover_color triggers on mouse over, helping find it, or set to "transparent" to be totally invisible.
+        self.btn_hidden.configure(hover_color=THEME_COLOR) # Let it glow slightly to confirm existence to admin
 
         # 1. Header/Status
         self.lbl_status = ctk.CTkLabel(self.main_frame, text="Ожидание", text_color="gray", font=(FONT_MAIN, 24, "italic"))
@@ -137,7 +180,7 @@ class VRTimerApp(ctk.CTk):
 
         # 3. Quick Time Buttons (With +2 min buffer)
         self.frm_quick_buttons = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        self.frm_quick_buttons.grid(row=3, column=0, pady=20)
+        self.frm_quick_buttons.grid(row=3, column=0, pady=10)
         
         btn_params = {
             "fg_color": "transparent", 
@@ -150,9 +193,8 @@ class VRTimerApp(ctk.CTk):
             "font": (FONT_MAIN, 14, "bold")
         }
         
-        # Helper to create styled buttons
         def create_btn(txt, mins):
-            cmd = lambda: self.start_timer(mins + 2) # Adding 2 minute buffer
+            cmd = lambda: self.start_timer(mins + 2) 
             ctk.CTkButton(self.frm_quick_buttons, text=txt, command=cmd, **btn_params).pack(side="left", padx=10)
 
         create_btn("15 мин", 15)
@@ -166,9 +208,9 @@ class VRTimerApp(ctk.CTk):
         ctk.CTkEntry(self.frm_custom_time, textvariable=self.custom_time_var, width=80, justify="center", font=(FONT_MAIN, 14)).pack(side="left", padx=10)
         ctk.CTkButton(self.frm_custom_time, text="Старт (без буфера)", command=lambda: self.start_custom_timer(), fg_color=THEME_COLOR, hover_color=HOVER_COLOR).pack(side="left", padx=10)
 
-        # 5. Controls (Pause/Stop/Add)
+        # 5. Controls
         self.frm_controls = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        self.frm_controls.grid(row=5, column=0, pady=30)
+        self.frm_controls.grid(row=5, column=0, pady=20)
         
         control_params = {"width": 120, "height": 40}
         
@@ -181,25 +223,33 @@ class VRTimerApp(ctk.CTk):
         self.btn_add = ctk.CTkButton(self.frm_controls, text="+5 мин", command=self.add_time, state="disabled", fg_color=THEME_COLOR, hover_color=HOVER_COLOR, **control_params)
         self.btn_add.pack(side="left", padx=10)
 
+        # 6. Volume Control
+        self.frm_volume = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.frm_volume.grid(row=6, column=0, pady=(10, 20))
+
+        ctk.CTkLabel(self.frm_volume, text="Громкость озвучки:", font=(FONT_MAIN, 12)).pack(side="top", pady=2)
+        
+        self.slider_volume = ctk.CTkSlider(self.frm_volume, from_=0, to=1, command=self.on_volume_change, width=200, progress_color=THEME_COLOR)
+        self.slider_volume.pack(side="top", pady=5)
+        self.slider_volume.set(1.0) # Default 100%
+
     # --- Timer Control Methods ---
 
     def start_custom_timer(self):
         try:
             mins = int(self.custom_time_var.get())
             if mins > 0:
-                self.start_timer(mins) # No buffer for custom time unless requested? User said "presets", assuming custom is strict.
+                self.start_timer(mins) 
         except ValueError:
             pass
 
     def start_timer(self, minutes: int):
-        # Prevent starting if already running
         if self.timer_thread and self.timer_thread.is_alive():
             self.stop_timer()
 
         self.lbl_status.configure(text=f"Сессия запущена ({minutes} мин)", text_color="#55FF55")
         self.set_controls_state("normal")
         
-        # Start Thread
         self.timer_thread = TimerThread(
             duration_minutes=minutes,
             on_tick=self.on_tick,
@@ -232,12 +282,15 @@ class VRTimerApp(ctk.CTk):
         if self.timer_thread:
             self.timer_thread.add_time(5)
 
+    def on_volume_change(self, value):
+        self.sound_manager.set_volume(float(value))
+
     def set_controls_state(self, state):
         self.btn_pause.configure(state=state)
         self.btn_stop.configure(state=state)
         self.btn_add.configure(state=state)
 
-    # --- Callbacks (Thread-Safe UI Updates) ---
+    # --- Callbacks ---
     
     def on_tick(self, remaining: int, total: int):
         self.after(0, lambda: self._update_ui_tick(remaining, total))
@@ -254,7 +307,8 @@ class VRTimerApp(ctk.CTk):
             self.progress_bar.set(progress)
 
     def on_warning(self, minutes: int):
-        self.sound_manager.speak(f"Уважаемый игрок, до конца сеанса осталось {minutes} минут")
+        key = "15m" if minutes == 15 else "5m"
+        self.sound_manager.play(key)
         self.after(0, lambda: self.lbl_status.configure(text=f"ВНИМАНИЕ: {minutes} МИНУТ", text_color="yellow"))
 
     def on_finish(self):
@@ -266,7 +320,50 @@ class VRTimerApp(ctk.CTk):
         self.progress_bar.set(0)
         self.set_controls_state("disabled")
         
-        self.sound_manager.speak("Время сеанса вышло")
+        self.sound_manager.play("finish")
+        
+        # Schedule SteamVR kill in 60 seconds
+        print("Scheduling SteamVR kill in 60 seconds...")
+        threading.Timer(60.0, self._kill_steam_vr).start()
+
+    def _kill_steam_vr(self):
+        """Attempts to kill vrcatalog.exe (SteamVR) if running."""
+        target_process = "vrcatalog.exe"
+        killed = False
+        try:
+            for proc in psutil.process_iter(['pid', 'name']):
+                if proc.info['name'] and proc.info['name'].lower() == target_process.lower():
+                    proc.kill()
+                    killed = True
+                    print(f"Killed {target_process} (PID: {proc.info['pid']})")
+            
+            if not killed:
+                print(f"{target_process} not found.")
+                
+        except Exception as e:
+            print(f"Error killing SteamVR: {e}")
+
+    # --- Hidden Features ---
+
+    def on_hidden_click(self):
+        current_time = time.time()
+        # Reset if too slow (more than 1 sec between clicks)
+        if current_time - self.last_click_time > 1.0:
+            self.click_count = 0
+        
+        self.click_count += 1
+        self.last_click_time = current_time
+        
+        if self.click_count >= 3:
+            self.click_count = 0
+            new_pack = self.sound_manager.toggle_pack()
+            self.show_toast(f"Озвучка изменена: {new_pack.upper()}")
+
+    def show_toast(self, message):
+        toast = ctk.CTkLabel(self, text=message, fg_color="#333333", text_color="white", corner_radius=10, padx=20, pady=10)
+        toast.place(relx=0.5, rely=0.1, anchor="center")
+        # Auto hide after 2 seconds
+        self.after(2000, toast.destroy)
 
 
 if __name__ == "__main__":

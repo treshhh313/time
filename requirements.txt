@@ -1,2 +1,3 @@
 customtkinter
-pyttsx3
+pygame
+psutil
