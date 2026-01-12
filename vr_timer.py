@@ -345,8 +345,8 @@ class VRTimerApp(ctk.CTk):
         threading.Timer(60.0, self._kill_steam_vr).start()
 
     def _kill_steam_vr(self):
-        """Attempts to kill vrcatalog.exe (SteamVR) if running."""
-        target_process = "vrcatalog.exe"
+        """Attempts to kill vrmonitor.exe (SteamVR) if running."""
+        target_process = "vrmonitor.exe"
         killed = False
         try:
             for proc in psutil.process_iter(['pid', 'name']):
