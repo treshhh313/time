@@ -40,7 +40,14 @@ ctk.set_default_color_theme("dark-blue")
 class ConfigManager:
     """Handles loading and saving configuration."""
     def __init__(self, filename="config.json"):
-        self.filename = resource_path(filename)
+        # Determine persistent path (next to exe or script)
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+        self.filename = os.path.join(base_path, filename)
+        
         self.defaults = {
             "buffer_seconds": 20,
             "kill_delay_seconds": 30,
