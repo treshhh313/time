@@ -4,7 +4,18 @@ import psutil
 import threading
 import time
 import os
+import sys
 from typing import Optional
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 # --- Configuration & Constants ---
 THEME_COLOR = "#8A2BE2"  # BlueViolet
@@ -55,6 +66,13 @@ class SoundManager:
             return
             
         filename = f"{self.current_pack}_{base_name}"
+        
+        # Try local first, then bundled
+        local_path = os.path.abspath(filename)
+        if not os.path.exists(local_path):
+            filename = resource_path(filename)
+        else:
+            filename = local_path
         
         if not os.path.exists(filename):
             print(f"[AUDIO MISSING] File not found: {filename}")

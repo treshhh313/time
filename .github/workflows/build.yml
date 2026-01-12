@@ -34,8 +34,12 @@ jobs:
         # Build EXE
         # --noconsole: hide terminal
         # --onefile: single exe
-        # --add-data: include customtkinter files (crucial for themes/fonts)
-        pyinstaller --noconsole --onefile --add-data "${ctk_path};customtkinter" vr_timer.py
+        # --add-data: include customtkinter files and audio
+        pyinstaller --noconsole --onefile `
+            --add-data "${ctk_path};customtkinter" `
+            --add-data "v1_*.mp3;." `
+            --add-data "v2_*.mp3;." `
+            vr_timer.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
