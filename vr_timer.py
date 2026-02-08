@@ -22,8 +22,8 @@ def resource_path(relative_path):
 THEME_COLOR = "#8A2BE2"  # BlueViolet
 HOVER_COLOR = "#9400D3"  # DarkViolet
 FONT_MAIN = "Roboto"
-WINDOW_SIZE = "700x550" # Increased height for volume slider
-APP_TITLE = "VR Club Timer"
+WINDOW_SIZE = "300x520" # Narrow vertical layout
+APP_TITLE = "VR Timer"
 
 # Audio Config
 AUDIO_FILES = {
@@ -193,6 +193,8 @@ class VRTimerApp(ctk.CTk):
         
         self.title(APP_TITLE)
         self.geometry(WINDOW_SIZE)
+        self.resizable(False, False)
+        self.attributes("-topmost", True)
         
         # Managers
         self.config_manager = ConfigManager()
@@ -210,6 +212,8 @@ class VRTimerApp(ctk.CTk):
         # Hidden Trigger vars
         self.click_count = 0
         self.last_click_time = 0
+        
+        self.is_mini_mode = False
         
         self._init_ui()
 
@@ -236,21 +240,21 @@ class VRTimerApp(ctk.CTk):
         self.btn_hidden.configure(hover_color=THEME_COLOR)
 
         # 1. Header/Status
-        self.lbl_status = ctk.CTkLabel(self.timer_frame, text="Ожидание", text_color="gray", font=(FONT_MAIN, 24, "italic"))
-        self.lbl_status.grid(row=0, column=0, pady=(20, 10))
+        self.lbl_status = ctk.CTkLabel(self.timer_frame, text="Ожидание", text_color="gray", font=(FONT_MAIN, 16, "italic"))
+        self.lbl_status.grid(row=0, column=0, pady=(10, 5))
 
         # 2. Timer Display (Big)
-        self.lbl_time = ctk.CTkLabel(self.timer_frame, text="00:00:00", font=(FONT_MAIN, 80, "bold"))
-        self.lbl_time.grid(row=1, column=0, pady=20)
+        self.lbl_time = ctk.CTkLabel(self.timer_frame, text="00:00:00", font=(FONT_MAIN, 58, "bold")) # Reduced font size
+        self.lbl_time.grid(row=1, column=0, pady=10)
         
-        self.progress_bar = ctk.CTkProgressBar(self.timer_frame, orientation="horizontal", mode="determinate")
-        self.progress_bar.grid(row=2, column=0, sticky="ew", padx=40, pady=20)
+        self.progress_bar = ctk.CTkProgressBar(self.timer_frame, orientation="horizontal", mode="determinate", width=250)
+        self.progress_bar.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
         self.progress_bar.set(0)
         self.progress_bar.configure(progress_color=THEME_COLOR)
 
-        # 3. Quick Time Buttons
+        # 3. Quick Time Buttons (Grid Layout)
         self.frm_quick_buttons = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
-        self.frm_quick_buttons.grid(row=3, column=0, pady=10)
+        self.frm_quick_buttons.grid(row=3, column=0, pady=5)
         
         btn_params = {
             "fg_color": "transparent", 
@@ -258,53 +262,62 @@ class VRTimerApp(ctk.CTk):
             "border_color": THEME_COLOR, 
             "text_color": "white", 
             "hover_color": THEME_COLOR,
-            "width": 100,
-            "height": 40,
-            "font": (FONT_MAIN, 14, "bold")
+            "width": 80,
+            "height": 35,
+            "font": (FONT_MAIN, 12, "bold")
         }
         
-        def create_btn(txt, mins):
-            # Dynamic buffer from config
-            cmd = lambda: self.start_timer(mins) # Buffer added inside start_timer now? Or passed here.
-            # Let's move buffer logic to start_timer to keep it dynamic
-            ctk.CTkButton(self.frm_quick_buttons, text=txt, command=cmd, **btn_params).pack(side="left", padx=10)
+        def create_btn(txt, mins, col):
+            cmd = lambda: self.start_timer(mins)
+            ctk.CTkButton(self.frm_quick_buttons, text=txt, command=cmd, **btn_params).grid(row=0, column=col, padx=5)
 
-        create_btn("15 мин", 15)
-        create_btn("30 мин", 30)
-        create_btn("60 мин", 60)
+        create_btn("15m", 15, 0)
+        create_btn("30m", 30, 1)
+        create_btn("60m", 60, 2)
 
         # 4. Custom Time Input
         self.frm_custom_time = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
         self.frm_custom_time.grid(row=4, column=0, pady=10)
         
-        ctk.CTkEntry(self.frm_custom_time, textvariable=self.custom_time_var, width=80, justify="center", font=(FONT_MAIN, 14)).pack(side="left", padx=10)
-        ctk.CTkButton(self.frm_custom_time, text="Старт (без буфера)", command=lambda: self.start_custom_timer(), fg_color=THEME_COLOR, hover_color=HOVER_COLOR).pack(side="left", padx=10)
+        ctk.CTkEntry(self.frm_custom_time, textvariable=self.custom_time_var, width=60, justify="center", font=(FONT_MAIN, 14)).pack(side="left", padx=5)
+        ctk.CTkButton(self.frm_custom_time, text="Старт", command=lambda: self.start_custom_timer(), fg_color=THEME_COLOR, hover_color=HOVER_COLOR, width=80).pack(side="left", padx=5)
 
-        # 5. Controls
+        # 5. Controls (2x2 Grid)
         self.frm_controls = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
-        self.frm_controls.grid(row=5, column=0, pady=20)
+        self.frm_controls.grid(row=5, column=0, pady=10)
         
-        control_params = {"width": 120, "height": 40}
+        control_params = {"width": 110, "height": 35}
         
         self.btn_pause = ctk.CTkButton(self.frm_controls, text="Пауза", command=self.pause_timer, state="disabled", fg_color="#FFA500", hover_color="#CD8500", **control_params)
-        self.btn_pause.pack(side="left", padx=10)
+        self.btn_pause.grid(row=0, column=0, padx=5, pady=5)
         
-        self.btn_stop = ctk.CTkButton(self.frm_controls, text="Стоп/Сброс", command=self.stop_timer, state="disabled", fg_color="#DC143C", hover_color="#8B0000", **control_params)
-        self.btn_stop.pack(side="left", padx=10)
+        self.btn_stop = ctk.CTkButton(self.frm_controls, text="Сброс", command=self.stop_timer, state="disabled", fg_color="#DC143C", hover_color="#8B0000", **control_params)
+        self.btn_stop.grid(row=0, column=1, padx=5, pady=5)
         
         self.btn_add = ctk.CTkButton(self.frm_controls, text="+5 мин", command=self.add_time, state="disabled", fg_color=THEME_COLOR, hover_color=HOVER_COLOR, **control_params)
-        self.btn_add.pack(side="left", padx=10)
+        self.btn_add.grid(row=1, column=0, columnspan=2, pady=5, sticky="ew")
 
         # 6. Volume Control
         self.frm_volume = ctk.CTkFrame(self.timer_frame, fg_color="transparent")
-        self.frm_volume.grid(row=6, column=0, pady=(10, 20))
+        self.frm_volume.grid(row=6, column=0, pady=(5, 10))
 
-        ctk.CTkLabel(self.frm_volume, text="Громкость озвучки:", font=(FONT_MAIN, 12)).pack(side="top", pady=2)
-        
-        self.slider_volume = ctk.CTkSlider(self.frm_volume, from_=0, to=1, command=self.on_volume_change, width=200, progress_color=THEME_COLOR)
-        self.slider_volume.pack(side="top", pady=5)
+        # Compact Volume
+        ctk.CTkLabel(self.frm_volume, text="🔊", font=(FONT_MAIN, 16)).pack(side="left", padx=5)
+        self.slider_volume = ctk.CTkSlider(self.frm_volume, from_=0, to=1, command=self.on_volume_change, width=180, progress_color=THEME_COLOR)
+        self.slider_volume.pack(side="left", padx=5)
         self.slider_volume.set(1.0) 
 
+        # 7. Auto-Hover Logic (Starts automatically)
+        self.hover_check_job = None
+        self.start_hover_check()
+
+        # --- MINI MODE UI (Hidden by default) ---
+        self.mini_frame = ctk.CTkFrame(self, fg_color="transparent")
+        
+        # Simple mini layout: Just time
+        self.lbl_mini_time = ctk.CTkLabel(self.mini_frame, text="00:00:00", font=(FONT_MAIN, 40, "bold"))
+        self.lbl_mini_time.pack(expand=True)
+        
         # --- TAB: SETTINGS ---
         self.settings_frame = self.tab_view.tab("Настройки")
         self.settings_frame.grid_columnconfigure(0, weight=1)
@@ -340,6 +353,52 @@ class VRTimerApp(ctk.CTk):
             self.show_toast("Настройки сохранены!")
         except ValueError:
             self.show_toast("Ошибка: введите числа!")
+
+    def start_hover_check(self):
+        self.check_hover()
+    
+    def check_hover(self):
+        try:
+            # Get mouse position
+            x, y = self.winfo_pointerxy()
+            
+            # Get window position and size
+            win_x = self.winfo_rootx()
+            win_y = self.winfo_rooty()
+            win_w = self.winfo_width()
+            win_h = self.winfo_height()
+            
+            # Check if mouse is inside window
+            is_inside = (win_x <= x <= win_x + win_w) and (win_y <= y <= win_y + win_h)
+            
+            if is_inside:
+                if self.is_mini_mode:
+                    self.expand_ui()
+            else:
+                if not self.is_mini_mode:
+                    self.minimize_ui()
+                    
+        except Exception:
+            pass
+            
+        # Schedule next check
+        self.hover_check_job = self.after(200, self.check_hover)
+
+    def minimize_ui(self):
+        if self.is_mini_mode: return
+        self.is_mini_mode = True
+        
+        self.tab_view.grid_forget()
+        self.mini_frame.place(relx=0.5, rely=0.5, anchor="center")
+        self.geometry("250x60") # Slightly smaller height 
+
+    def expand_ui(self):
+        if not self.is_mini_mode: return
+        self.is_mini_mode = False
+        
+        self.mini_frame.place_forget()
+        self.tab_view.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.geometry(WINDOW_SIZE)
 
     # --- Timer Control Methods ---
 
@@ -393,6 +452,7 @@ class VRTimerApp(ctk.CTk):
         
         self.lbl_status.configure(text="Сессия остановлена", text_color="white")
         self.lbl_time.configure(text="00:00:00")
+        self.lbl_mini_time.configure(text="00:00:00")
         self.progress_bar.set(0)
         self.set_controls_state("disabled")
         self.btn_pause.configure(text="Пауза")
@@ -420,6 +480,7 @@ class VRTimerApp(ctk.CTk):
         time_str = f"{hours:02}:{mins:02}:{secs:02}"
         
         self.lbl_time.configure(text=time_str)
+        self.lbl_mini_time.configure(text=time_str)
         
         if total > 0:
             progress = remaining / total
@@ -436,6 +497,7 @@ class VRTimerApp(ctk.CTk):
     def _handle_finish(self):
         self.lbl_status.configure(text="Сеанс завершен", text_color="#FF5555")
         self.lbl_time.configure(text="00:00:00")
+        self.lbl_mini_time.configure(text="00:00:00")
         self.progress_bar.set(0)
         self.set_controls_state("disabled")
         
